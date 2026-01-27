@@ -16,16 +16,23 @@ body {
   min-height: 0;
 }
 
-#coordinates-panel {
+#info-panel {
   background: #1a1a2e;
   color: #e0e0e0;
   padding: 12px 20px;
   display: flex;
   align-items: center;
+  gap: 32px;
+}
+
+#coordinates-panel,
+#language-panel {
+  display: flex;
+  align-items: center;
   gap: 16px;
 }
 
-#coordinates-panel h3 {
+#info-panel h3 {
   font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -37,4 +44,10 @@ body {
   font-family: 'Courier New', monospace;
   font-size: 16px;
   color: #00e676;
+}
+
+#language-display {
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  color: #ffab40;
 }
