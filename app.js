@@ -30,8 +30,16 @@ map.on('click', function (e) {
 
   const languages = getLanguagesAtPoint(e.latlng.lat, e.latlng.lng);
   if (languages.length > 0) {
-    const names = languages.map(l => `${l.language} (${l.nativeName})`).join(', ');
-    languageDisplay.textContent = `Native: ${names}`;
+    const native = languages.filter(l => l.type === 'native');
+    const regional = languages.filter(l => l.type === 'regional');
+    const parts = [];
+    if (native.length > 0) {
+      parts.push('Native: ' + native.map(l => `${l.language} (${l.nativeName})`).join(', '));
+    }
+    if (regional.length > 0) {
+      parts.push('Regional: ' + regional.map(l => `${l.language} (${l.nativeName})`).join(', '));
+    }
+    languageDisplay.textContent = parts.join('  |  ');
   } else {
     languageDisplay.textContent = 'No language data for this location';
   }
