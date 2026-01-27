@@ -838,3 +838,19 @@ function getLanguagesAtPoint(lat, lng) {
   }
   return results;
 }
+
+/**
+ * Get all matching zone objects (including polygons) at the given coordinates.
+ * @param {number} lat
+ * @param {number} lng
+ * @returns {Array<{language: string, nativeName: string, type: string, polygon: number[][]}>}
+ */
+function getMatchingZones(lat, lng) {
+  const results = [];
+  for (const zone of languageZones) {
+    if (isPointInPolygon(lat, lng, zone.polygon)) {
+      results.push(zone);
+    }
+  }
+  return results;
+}
