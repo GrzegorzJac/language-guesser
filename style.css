@@ -1,0 +1,40 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+#map {
+  flex: 1;
+  min-height: 0;
+}
+
+#coordinates-panel {
+  background: #1a1a2e;
+  color: #e0e0e0;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+#coordinates-panel h3 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #8888aa;
+  white-space: nowrap;
+}
+
+#coordinates-display {
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  color: #00e676;
+}
