@@ -1,0 +1,15 @@
+{
+  "type": "Feature",
+  "properties": {
+    "language": "Kashubian",
+    "nativeName": "Kaszëbsczi",
+    "type": "regional"
+  },
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [[
+      [17.50, 54.70], [18.60, 54.70], [18.60, 54.35], [18.30, 54.20],
+      [17.80, 54.00], [17.50, 54.10], [17.50, 54.70]
+    ]]
+  }
+}
