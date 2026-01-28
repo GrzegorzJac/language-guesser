@@ -15,7 +15,6 @@
  * Each GeoJSON file should have properties:
  *   - language: "Polish"
  *   - nativeName: "Polski"
- *   - type: "native" or "regional"
  */
 
 const fs = require('fs');
@@ -114,7 +113,7 @@ function extractPolygons(geometry) {
 /**
  * Process a single GeoJSON file
  */
-function processGeoJSON(filePath, defaultType) {
+function processGeoJSON(filePath) {
   const content = fs.readFileSync(filePath, 'utf-8');
   const geojson = JSON.parse(content);
   const zones = [];
@@ -127,7 +126,6 @@ function processGeoJSON(filePath, defaultType) {
     const props = feature.properties || {};
     const language = props.language || props.name || path.basename(filePath, '.geojson');
     const nativeName = props.nativeName || props.native_name || language;
-    const type = props.type || defaultType;
 
     const polygons = extractPolygons(feature.geometry);
 
@@ -149,7 +147,6 @@ function processGeoJSON(filePath, defaultType) {
         zones.push({
           language,
           nativeName,
-          type,
           polygon: simplified
         });
       }
@@ -198,7 +195,6 @@ function generateOutput(zones) {
     lines.push('  {');
     lines.push(`    language: '${zone.language}',`);
     lines.push(`    nativeName: '${zone.nativeName}',`);
-    lines.push(`    type: '${zone.type}',`);
     lines.push('    polygon: [');
     lines.push(formatPolygon(zone.polygon));
     lines.push('    ]');
@@ -230,10 +226,10 @@ function isPointInPolygon(lat, lng, polygon) {
 }
 
 /**
- * Get all languages natively spoken at the given coordinates.
+ * Get all languages spoken at the given coordinates.
  * @param {number} lat
  * @param {number} lng
- * @returns {Array<{language: string, nativeName: string, type: string}>}
+ * @returns {Array<{language: string, nativeName: string}>}
  */
 function getLanguagesAtPoint(lat, lng) {
   const results = [];
@@ -241,8 +237,7 @@ function getLanguagesAtPoint(lat, lng) {
     if (isPointInPolygon(lat, lng, zone.polygon)) {
       results.push({
         language: zone.language,
-        nativeName: zone.nativeName,
-        type: zone.type
+        nativeName: zone.nativeName
       });
     }
   }
@@ -253,7 +248,7 @@ function getLanguagesAtPoint(lat, lng) {
  * Get all matching zone objects (including polygons) at the given coordinates.
  * @param {number} lat
  * @param {number} lng
- * @returns {Array<{language: string, nativeName: string, type: string, polygon: number[][]}>}
+ * @returns {Array<{language: string, nativeName: string, polygon: number[][]}>}
  */
 function getMatchingZones(lat, lng) {
   const results = [];
@@ -284,7 +279,7 @@ function main() {
 
     for (const file of files) {
       const filePath = path.join(countriesDir, file);
-      const zones = processGeoJSON(filePath, 'native');
+      const zones = processGeoJSON(filePath);
       const countryName = path.basename(file, '.geojson');
       zones.forEach(z => z._source = countryName);
       allZones.push(...zones);
@@ -299,9 +294,9 @@ function main() {
 
     for (const file of files) {
       const filePath = path.join(regionalDir, file);
-      const zones = processGeoJSON(filePath, 'regional');
+      const zones = processGeoJSON(filePath);
       const regionName = path.basename(file, '.geojson');
-      zones.forEach(z => z._source = `${regionName} (regional)`);
+      zones.forEach(z => z._source = `${regionName}`);
       allZones.push(...zones);
       console.log(`  ${file}: ${zones.length} zone(s)`);
     }
@@ -309,14 +304,13 @@ function main() {
 
   if (allZones.length === 0) {
     console.log('\nNo GeoJSON files found in data/countries/ or data/regional/');
-    console.log('Add .geojson files with properties: language, nativeName, type');
+    console.log('Add .geojson files with properties: language, nativeName');
     console.log('\nExample structure for data/countries/poland.geojson:');
     console.log(JSON.stringify({
       type: "Feature",
       properties: {
         language: "Polish",
-        nativeName: "Polski",
-        type: "native"
+        nativeName: "Polski"
       },
       geometry: {
         type: "Polygon",
