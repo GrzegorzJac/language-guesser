@@ -1,22 +1,26 @@
 # Language Zones Data
 
+Folder `data/` jest jedynym źródłem prawdy dla stref językowych. Wszystkie pliki `.geojson` z tego folderu (rekurencyjnie) trafiają do `languages.generated.js`.
+
 ## Struktura
 
 ```
 data/
-├── countries/     # Główne języki narodowe (type: "native")
-│   ├── poland.geojson
-│   ├── germany.geojson
-│   └── ...
-└── regional/      # Języki regionalne/mniejszościowe (type: "regional")
-    ├── kashubian.geojson
-    ├── sorbian.geojson
-    └── ...
+├── countries/        # Ręczne: główne języki narodowe
+│   └── poland.geojson
+├── regional/         # Ręczne: języki regionalne/mniejszościowe
+│   └── kashubian.geojson
+└── glottography/     # Auto-generowane z Glottography (Asher & Moseley 2007)
+    ├── Atlantic-Congo/
+    ├── Austronesian/
+    ├── Indo-European/
+    ├── Sino-Tibetan/
+    └── ...  (pogrupowane wg rodziny językowej)
 ```
 
 ## Format GeoJSON
 
-Każdy plik musi zawierać:
+Każdy plik musi być poprawnym GeoJSON (`Feature` lub `FeatureCollection`):
 
 ```json
 {
@@ -24,7 +28,10 @@ Każdy plik musi zawierać:
   "properties": {
     "language": "Polish",
     "nativeName": "Polski",
-    "type": "native"
+    "family": "Slavic",
+    "macroarea": "Eurasia",
+    "glottocode": "poli1260",
+    "iso639": "pol"
   },
   "geometry": {
     "type": "Polygon",
@@ -33,9 +40,38 @@ Każdy plik musi zawierać:
 }
 ```
 
-**Uwaga:** GeoJSON używa `[longitude, latitude]`, skrypt automatycznie konwertuje do `[lat, lng]`.
+**Wymagane:** `language`, `nativeName`
+**Opcjonalne:** `family`, `macroarea`, `glottocode`, `iso639`
+**Uwaga:** GeoJSON używa `[longitude, latitude]`. Skrypt budujący konwertuje do `[lat, lng]`.
 
-## Źródła danych wysokiej jakości
+## Workflow
+
+### Pełny pipeline (od zera)
+
+```bash
+# 1. Rozpakuj dane z Glottography → data/glottography/
+node scripts/extract-glottography.js
+
+# 2. Zbuduj languages.generated.js z data/
+node scripts/build-languages.js
+```
+
+### Dodanie nowego języka ręcznie
+
+1. Utwórz plik `.geojson` w `data/countries/` lub `data/regional/`
+2. Uruchom `node scripts/build-languages.js`
+
+### Aktualizacja danych Glottography
+
+```bash
+# Ponowna ekstrakcja (nadpisuje istniejące pliki)
+node scripts/extract-glottography.js --clean
+
+# Przebuduj output
+node scripts/build-languages.js
+```
+
+## Źródła danych
 
 | Źródło | URL | Opis |
 |--------|-----|------|
@@ -44,65 +80,9 @@ Każdy plik musi zawierać:
 | geojson.io | https://geojson.io | Edytor online - rysuj/modyfikuj poligony |
 | Overpass Turbo | https://overpass-turbo.eu | Eksport granic z OpenStreetMap |
 
-## Workflow
-
-### 1. Pobierz bazowy GeoJSON
-
-Z Natural Earth (kraje):
-```bash
-# Pobierz Admin 0 Countries (granice państw)
-wget https://naciscdn.org/naturalearth/10m/cultural/ne_10m_admin_0_countries.zip
-```
-
-Z GADM (regiony wewnętrzne):
-```bash
-# Pobierz dla konkretnego kraju (np. Poland)
-wget https://geodata.ucdavis.edu/gadm/gadm4.1/json/gadm41_POL_1.json
-```
-
-### 2. Edytuj w geojson.io
-
-1. Otwórz https://geojson.io
-2. Przeciągnij plik .geojson
-3. Dostosuj granice (np. dla języków regionalnych)
-4. Dodaj properties: `language`, `nativeName`, `type`
-5. Zapisz → Save → GeoJSON
-
-### 3. Zbuduj languages.js
-
-```bash
-node scripts/build-languages.js
-
-# Z mniejszą tolerancją (więcej szczegółów, większy plik):
-node scripts/build-languages.js --tolerance=0.01
-
-# Z większą tolerancją (mniej szczegółów, mniejszy plik):
-node scripts/build-languages.js --tolerance=0.05
-```
-
-### 4. Podgląd na mapie
-
-Po wygenerowaniu `languages.generated.js`:
-1. Zamień zawartość `languages.js` na wygenerowaną
-2. Otwórz aplikację w przeglądarce
-3. Klikaj na mapie i sprawdzaj czy strefy są poprawne
-
-## Języki regionalne - źródła
-
-| Język | Region | Źródło mapy |
-|-------|--------|-------------|
-| Kaszubski | PL | Wikipedia: Kashubian language |
-| Śląski | PL | Wikipedia: Silesian language |
-| Sorbski | DE | Wikipedia: Sorbian languages |
-| Fryzyjski | NL/DE | Wikipedia: Frisian languages |
-| Bretoński | FR | Wikipedia: Breton language |
-| Okcytański | FR | Wikipedia: Occitan language |
-| Baskijski | ES/FR | Wikipedia: Basque Country |
-| Kataloński | ES/FR | Wikipedia: Catalan Countries |
-| Sámi | SE/FI/NO | Wikipedia: Sápmi |
-
 ## Tips
 
-- **MultiPolygon**: Dla krajów z wyspami/ekslawami, każda część zostanie osobną strefą
-- **Simplifikacja**: Domyślna tolerancja 0.02° (~2km) - dobra równowaga
-- **Testowanie**: Użyj geojson.io do wizualnego sprawdzenia przed buildem
+- **MultiPolygon**: Dla krajów z wyspami/ekslawami, każda część staje się osobną strefą
+- **Simplifikacja**: Kontrolowana parametrem `--tolerance` przy buildzie (domyślnie 0.03°)
+- **Testowanie**: Użyj geojson.io do wizualnego sprawdzenia pliku `.geojson` przed buildem
+- **Idempotentność**: Oba skrypty można uruchamiać wielokrotnie — nadpisują wynik

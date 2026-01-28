@@ -1,43 +1,61 @@
 #!/usr/bin/env node
 /**
- * Build script for languages.js
+ * Step 2: Build languages.generated.js from data/**\/*.geojson
  *
- * Converts GeoJSON files from data/ directory into the languageZones format.
+ * Recursively reads all .geojson files from data/ (countries, regional,
+ * glottography, and any custom subdirectories), simplifies polygons with
+ * Douglas-Peucker, and outputs languages.generated.js for the frontend.
+ *
+ * This script is idempotent — running it again overwrites the output cleanly.
  *
  * Usage:
  *   node scripts/build-languages.js
- *   node scripts/build-languages.js --tolerance=0.01  # adjust simplification
+ *   node scripts/build-languages.js --tolerance=0.05    # coarser simplification
+ *   node scripts/build-languages.js --tolerance=0.01    # finer simplification
+ *   node scripts/build-languages.js --min-points=4      # min polygon size
  *
- * Input structure:
- *   data/countries/*.geojson   - Country-level native languages
- *   data/regional/*.geojson    - Regional/minority languages
- *
- * Each GeoJSON file should have properties:
- *   - language: "Polish"
- *   - nativeName: "Polski"
+ * Input: data/**\/*.geojson (any depth, standard GeoJSON with [lng, lat])
+ * Output: languages.generated.js (languageZones array with [lat, lng])
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// Parse command line arguments
+// ─── CLI arguments ───────────────────────────────────────────────────────────
+
 const args = process.argv.slice(2);
-let TOLERANCE = 0.02; // Default simplification tolerance in degrees (~2km)
+let TOLERANCE = 0.03;   // degrees (~3km at equator)
+let MIN_POINTS = 4;
 
 for (const arg of args) {
-  if (arg.startsWith('--tolerance=')) {
-    TOLERANCE = parseFloat(arg.split('=')[1]);
-  }
+  if (arg.startsWith('--tolerance='))  TOLERANCE = parseFloat(arg.split('=')[1]);
+  if (arg.startsWith('--min-points=')) MIN_POINTS = parseInt(arg.split('=')[1], 10);
 }
 
-/**
- * Douglas-Peucker algorithm for polygon simplification
- * Reduces number of points while preserving shape
- */
+// ─── Paths ───────────────────────────────────────────────────────────────────
+
+const ROOT = path.join(__dirname, '..');
+const DATA_DIR = path.join(ROOT, 'data');
+const OUTPUT_PATH = path.join(ROOT, 'languages.generated.js');
+
+// ─── Douglas-Peucker simplification ─────────────────────────────────────────
+
+function perpendicularDistance(point, lineStart, lineEnd) {
+  const [x, y] = point;
+  const [x1, y1] = lineStart;
+  const [x2, y2] = lineEnd;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  if (dx === 0 && dy === 0) {
+    return Math.sqrt((x - x1) ** 2 + (y - y1) ** 2);
+  }
+  const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy)));
+  return Math.sqrt((x - (x1 + t * dx)) ** 2 + (y - (y1 + t * dy)) ** 2);
+}
+
 function simplifyPolygon(points, tolerance) {
   if (points.length <= 2) return points;
 
-  // Find the point with the maximum distance from the line between first and last
   let maxDist = 0;
   let maxIndex = 0;
   const first = points[0];
@@ -51,7 +69,6 @@ function simplifyPolygon(points, tolerance) {
     }
   }
 
-  // If max distance is greater than tolerance, recursively simplify
   if (maxDist > tolerance) {
     const left = simplifyPolygon(points.slice(0, maxIndex + 1), tolerance);
     const right = simplifyPolygon(points.slice(maxIndex), tolerance);
@@ -61,29 +78,8 @@ function simplifyPolygon(points, tolerance) {
   return [first, last];
 }
 
-function perpendicularDistance(point, lineStart, lineEnd) {
-  const [x, y] = point;
-  const [x1, y1] = lineStart;
-  const [x2, y2] = lineEnd;
+// ─── Coordinate helpers ─────────────────────────────────────────────────────
 
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-
-  if (dx === 0 && dy === 0) {
-    return Math.sqrt((x - x1) ** 2 + (y - y1) ** 2);
-  }
-
-  const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy)));
-  const projX = x1 + t * dx;
-  const projY = y1 + t * dy;
-
-  return Math.sqrt((x - projX) ** 2 + (y - projY) ** 2);
-}
-
-/**
- * Convert GeoJSON coordinates to [lat, lng] format
- * GeoJSON uses [lng, lat], we need [lat, lng]
- */
 function convertCoordinates(coords) {
   return coords.map(([lng, lat]) => [
     Math.round(lat * 100) / 100,
@@ -91,28 +87,38 @@ function convertCoordinates(coords) {
   ]);
 }
 
-/**
- * Extract polygon(s) from GeoJSON geometry
- */
 function extractPolygons(geometry) {
   const polygons = [];
-
   if (geometry.type === 'Polygon') {
-    // Take only the outer ring (index 0), ignore holes
-    polygons.push(geometry.coordinates[0]);
+    polygons.push(geometry.coordinates[0]); // outer ring only
   } else if (geometry.type === 'MultiPolygon') {
-    // For MultiPolygon, extract all outer rings
     for (const poly of geometry.coordinates) {
-      polygons.push(poly[0]);
+      polygons.push(poly[0]); // outer ring of each polygon
     }
   }
-
   return polygons;
 }
 
-/**
- * Process a single GeoJSON file
- */
+// ─── File discovery ──────────────────────────────────────────────────────────
+
+function findGeoJSONFiles(dir) {
+  const results = [];
+  if (!fs.existsSync(dir)) return results;
+
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...findGeoJSONFiles(fullPath));
+    } else if (entry.name.endsWith('.geojson')) {
+      results.push(fullPath);
+    }
+  }
+  return results;
+}
+
+// ─── GeoJSON processing ─────────────────────────────────────────────────────
+
 function processGeoJSON(filePath) {
   const content = fs.readFileSync(filePath, 'utf-8');
   const geojson = JSON.parse(content);
@@ -126,6 +132,12 @@ function processGeoJSON(filePath) {
     const props = feature.properties || {};
     const language = props.language || props.name || path.basename(filePath, '.geojson');
     const nativeName = props.nativeName || props.native_name || language;
+    const family = props.family || '';
+    const macroarea = props.macroarea || '';
+    const glottocode = props.glottocode || '';
+    const iso639 = props.iso639 || '';
+
+    if (!feature.geometry) continue;
 
     const polygons = extractPolygons(feature.geometry);
 
@@ -142,11 +154,14 @@ function processGeoJSON(filePath) {
         }
       }
 
-      // Skip tiny polygons (islands, exclaves)
-      if (simplified.length >= 4) {
+      if (simplified.length >= MIN_POINTS) {
         zones.push({
           language,
           nativeName,
+          family,
+          macroarea,
+          glottocode,
+          iso639,
           polygon: simplified
         });
       }
@@ -156,55 +171,36 @@ function processGeoJSON(filePath) {
   return zones;
 }
 
-/**
- * Format polygon array for output
- */
-function formatPolygon(polygon, indent = '    ') {
-  const lines = [];
-  const pointsPerLine = 4;
+// ─── Output generation ──────────────────────────────────────────────────────
 
-  for (let i = 0; i < polygon.length; i += pointsPerLine) {
-    const chunk = polygon.slice(i, i + pointsPerLine);
-    const formatted = chunk.map(([lat, lng]) => `[${lat}, ${lng}]`).join(', ');
-    lines.push(indent + '  ' + formatted + (i + pointsPerLine < polygon.length ? ',' : ''));
-  }
-
-  return lines.join('\n');
+function escapeString(s) {
+  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-/**
- * Generate the languages.js content
- */
 function generateOutput(zones) {
-  const lines = ['const languageZones = ['];
+  const lines = [];
 
-  // Group by country/region for better organization
-  let currentCountry = '';
+  lines.push('const languageZones = [');
+
+  let currentFamily = null;
 
   for (const zone of zones) {
-    const country = zone._source || 'MISC';
-
-    if (country !== currentCountry) {
-      if (currentCountry) lines.push('');
-      lines.push(`  // =====================================================`);
-      lines.push(`  // ${country.toUpperCase()}`);
-      lines.push(`  // =====================================================`);
-      currentCountry = country;
+    const familyLabel = zone.family || 'Unclassified';
+    if (familyLabel !== currentFamily) {
+      if (currentFamily !== null) lines.push('');
+      lines.push(`  // === ${familyLabel} ===`);
+      currentFamily = familyLabel;
     }
 
-    lines.push('  {');
-    lines.push(`    language: '${zone.language}',`);
-    lines.push(`    nativeName: '${zone.nativeName}',`);
-    lines.push('    polygon: [');
-    lines.push(formatPolygon(zone.polygon));
-    lines.push('    ]');
-    lines.push('  },');
+    const polyStr = zone.polygon.map(([lat, lng]) => `[${lat},${lng}]`).join(',');
+
+    lines.push(`  {language:'${escapeString(zone.language)}',nativeName:'${escapeString(zone.nativeName)}',family:'${escapeString(zone.family)}',macroarea:'${escapeString(zone.macroarea)}',glottocode:'${escapeString(zone.glottocode)}',iso639:'${escapeString(zone.iso639)}',polygon:[${polyStr}]},`);
   }
 
   lines.push('];');
   lines.push('');
 
-  // Add the helper functions
+  // Helper functions for the frontend
   lines.push(`/**
  * Ray-casting algorithm to determine if a point is inside a polygon.
  * @param {number} lat - Latitude of the point
@@ -248,7 +244,7 @@ function getLanguagesAtPoint(lat, lng) {
  * Get all matching zone objects (including polygons) at the given coordinates.
  * @param {number} lat
  * @param {number} lng
- * @returns {Array<{language: string, nativeName: string, polygon: number[][]}>}
+ * @returns {Array}
  */
 function getMatchingZones(lat, lng) {
   const results = [];
@@ -264,69 +260,69 @@ function getMatchingZones(lat, lng) {
   return lines.join('\n');
 }
 
-// Main execution
+// ─── Main ────────────────────────────────────────────────────────────────────
+
 function main() {
-  const dataDir = path.join(__dirname, '..', 'data');
-  const countriesDir = path.join(dataDir, 'countries');
-  const regionalDir = path.join(dataDir, 'regional');
+  console.log(`\n  data/**/*.geojson → languages.generated.js`);
+  console.log(`   Tolerance:  ${TOLERANCE}°`);
+  console.log(`   Min points: ${MIN_POINTS}\n`);
 
-  const allZones = [];
+  // Find all GeoJSON files
+  const files = findGeoJSONFiles(DATA_DIR);
 
-  // Process country files
-  if (fs.existsSync(countriesDir)) {
-    const files = fs.readdirSync(countriesDir).filter(f => f.endsWith('.geojson'));
-    console.log(`Found ${files.length} country file(s)`);
-
-    for (const file of files) {
-      const filePath = path.join(countriesDir, file);
-      const zones = processGeoJSON(filePath);
-      const countryName = path.basename(file, '.geojson');
-      zones.forEach(z => z._source = countryName);
-      allZones.push(...zones);
-      console.log(`  ${file}: ${zones.length} zone(s)`);
-    }
+  if (files.length === 0) {
+    console.error(`   No .geojson files found in ${DATA_DIR}`);
+    console.error(`   Run extract-glottography.js first or add files manually.`);
+    process.exit(1);
   }
 
-  // Process regional files
-  if (fs.existsSync(regionalDir)) {
-    const files = fs.readdirSync(regionalDir).filter(f => f.endsWith('.geojson'));
-    console.log(`Found ${files.length} regional file(s)`);
+  console.log(`   Found ${files.length} .geojson file(s)\n`);
 
-    for (const file of files) {
-      const filePath = path.join(regionalDir, file);
-      const zones = processGeoJSON(filePath);
-      const regionName = path.basename(file, '.geojson');
-      zones.forEach(z => z._source = `${regionName}`);
-      allZones.push(...zones);
-      console.log(`  ${file}: ${zones.length} zone(s)`);
-    }
+  // Process all files
+  const allZones = [];
+  let skippedTiny = 0;
+  const sourceCounts = {};
+
+  for (const filePath of files) {
+    const relPath = path.relative(DATA_DIR, filePath);
+    const sourceDir = path.dirname(relPath).split(path.sep)[0] || 'root';
+
+    const zones = processGeoJSON(filePath);
+    allZones.push(...zones);
+
+    sourceCounts[sourceDir] = (sourceCounts[sourceDir] || 0) + zones.length;
   }
 
   if (allZones.length === 0) {
-    console.log('\nNo GeoJSON files found in data/countries/ or data/regional/');
-    console.log('Add .geojson files with properties: language, nativeName');
-    console.log('\nExample structure for data/countries/poland.geojson:');
-    console.log(JSON.stringify({
-      type: "Feature",
-      properties: {
-        language: "Polish",
-        nativeName: "Polski"
-      },
-      geometry: {
-        type: "Polygon",
-        coordinates: [[[18.56, 54.83], [16.87, 54.45], "..."]]
-      }
-    }, null, 2));
-    return;
+    console.error('   No valid zones generated. Check your .geojson files.');
+    process.exit(1);
   }
 
-  const output = generateOutput(allZones);
-  const outputPath = path.join(__dirname, '..', 'languages.generated.js');
-  fs.writeFileSync(outputPath, output);
+  // Sort by family then language
+  allZones.sort((a, b) => {
+    const fa = a.family || 'zzz';
+    const fb = b.family || 'zzz';
+    if (fa !== fb) return fa.localeCompare(fb);
+    return a.language.localeCompare(b.language);
+  });
 
-  console.log(`\nGenerated ${outputPath}`);
-  console.log(`Total zones: ${allZones.length}`);
-  console.log(`Simplification tolerance: ${TOLERANCE}°`);
+  // Generate output
+  console.log(`   Generating output...`);
+  const output = generateOutput(allZones);
+  fs.writeFileSync(OUTPUT_PATH, output);
+
+  const sizeMB = (Buffer.byteLength(output, 'utf-8') / 1024 / 1024).toFixed(2);
+  const uniqueLangs = new Set(allZones.map(z => z.glottocode || z.language));
+
+  console.log(`\n   Output: ${OUTPUT_PATH}`);
+  console.log(`   Size:   ${sizeMB} MB`);
+  console.log(`   Zones:  ${allZones.length}`);
+  console.log(`   Unique languages: ${uniqueLangs.size}`);
+  console.log(`   By source:`);
+  for (const [source, count] of Object.entries(sourceCounts).sort()) {
+    console.log(`     ${source}: ${count} zone(s)`);
+  }
+  console.log(`\n   Done.\n`);
 }
 
 main();
