@@ -255,6 +255,28 @@ function getMatchingZones(lat, lng) {
   }
   return results;
 }
+
+/**
+ * Get ALL zones worldwide for the given language identifiers.
+ * Matches by glottocode first, falls back to language name.
+ * @param {Array<{language: string, glottocode?: string}>} langs
+ * @returns {Array} All zone objects matching those languages
+ */
+function getAllZonesForLanguages(langs) {
+  const codes = new Set();
+  const names = new Set();
+  for (const l of langs) {
+    if (l.glottocode) codes.add(l.glottocode);
+    names.add(l.language);
+  }
+  const results = [];
+  for (const zone of languageZones) {
+    if ((zone.glottocode && codes.has(zone.glottocode)) || names.has(zone.language)) {
+      results.push(zone);
+    }
+  }
+  return results;
+}
 `);
 
   return lines.join('\n');

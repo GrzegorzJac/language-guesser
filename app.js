@@ -45,11 +45,14 @@ map.on('click', function (e) {
     }
 
     // Get full zone data for metadata display
-    const matchingZonesData = getMatchingZones(e.latlng.lat, e.latlng.lng);
+    const localZones = getMatchingZones(e.latlng.lat, e.latlng.lng);
     const zoneByLang = new Map();
-    for (const z of matchingZonesData) {
+    for (const z of localZones) {
       if (!zoneByLang.has(z.language)) zoneByLang.set(z.language, z);
     }
+
+    // Get ALL zones worldwide for detected languages
+    const allZones = getAllZonesForLanguages(localZones);
 
     // Display as: "nativeName (language) [family] ..."
     languageDisplay.innerHTML = uniqueLanguages
@@ -66,10 +69,22 @@ map.on('click', function (e) {
       })
       .join(' &nbsp;|&nbsp; ');
 
-    // Draw polygons for matching zones with different colors
+    // Assign one color per language
     const zoneColors = ['#00e676', '#ffab40', '#42a5f5', '#ab47bc', '#ef5350'];
-    matchingZonesData.forEach((zone, index) => {
-      const color = zoneColors[index % zoneColors.length];
+    const langColorMap = new Map();
+    let colorIdx = 0;
+    for (const zone of allZones) {
+      const key = zone.glottocode || zone.language;
+      if (!langColorMap.has(key)) {
+        langColorMap.set(key, zoneColors[colorIdx % zoneColors.length]);
+        colorIdx++;
+      }
+    }
+
+    // Draw all zones worldwide for matching languages
+    allZones.forEach(zone => {
+      const key = zone.glottocode || zone.language;
+      const color = langColorMap.get(key);
       const poly = L.polygon(zone.polygon, {
         color: color,
         weight: 2,
