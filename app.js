@@ -35,31 +35,25 @@ map.on('click', function (e) {
 
   const languages = getLanguagesAtPoint(e.latlng.lat, e.latlng.lng);
   if (languages.length > 0) {
-    // Deduplicate by language name + type
+    // Deduplicate by language name
     const seen = new Set();
-    const native = [];
-    const regional = [];
+    const uniqueLanguages = [];
     for (const l of languages) {
-      const key = l.language + '|' + l.type;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (l.type === 'native') native.push(l);
-      else regional.push(l);
+      if (seen.has(l.language)) continue;
+      seen.add(l.language);
+      uniqueLanguages.push(l);
     }
 
-    const parts = [];
-    if (native.length > 0) {
-      parts.push('Native: ' + native.map(l => `${l.language} (${l.nativeName})`).join(', '));
-    }
-    if (regional.length > 0) {
-      parts.push('Regional: ' + regional.map(l => `${l.language} (${l.nativeName})`).join(', '));
-    }
-    languageDisplay.textContent = parts.join('  |  ');
+    // Display as: "nativeName (language), ..."
+    languageDisplay.textContent = uniqueLanguages
+      .map(l => `${l.nativeName} (${l.language})`)
+      .join(', ');
 
-    // Draw polygons for matching zones
+    // Draw polygons for matching zones with different colors
+    const zoneColors = ['#00e676', '#ffab40', '#42a5f5', '#ab47bc', '#ef5350'];
     const matchingZones = getMatchingZones(e.latlng.lat, e.latlng.lng);
-    matchingZones.forEach(zone => {
-      const color = zone.type === 'native' ? '#00e676' : '#ffab40';
+    matchingZones.forEach((zone, index) => {
+      const color = zoneColors[index % zoneColors.length];
       const poly = L.polygon(zone.polygon, {
         color: color,
         weight: 2,
